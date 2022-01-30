@@ -32,16 +32,10 @@ async function queryAXTree(
     role,
   });
   const filteredNodes: Protocol.Accessibility.AXNode[] = nodes.filter(
-    (node: Protocol.Accessibility.AXNode) => node.role.value !== 'StaticText'
+    (node: Protocol.Accessibility.AXNode) => node.role.value !== 'text'
   );
   return filteredNodes;
 }
-
-const normalizeValue = (value: string): string =>
-  value.replace(/ +/g, ' ').trim();
-const knownAttributes = new Set(['name', 'role']);
-const attributeRegexp =
-  /\[\s*(?<attribute>\w+)\s*=\s*(?<quote>"|')(?<value>\\.|.*?(?=\k<quote>))\k<quote>\s*\]/g;
 
 /*
  * The selectors consist of an accessible name to query for and optionally
@@ -55,19 +49,24 @@ const attributeRegexp =
  */
 type ariaQueryOption = { name?: string; role?: string };
 function parseAriaSelector(selector: string): ariaQueryOption {
+  const normalize = (value: string): string => value.replace(/ +/g, ' ').trim();
+  const knownAttributes = new Set(['name', 'role']);
   const queryOptions: ariaQueryOption = {};
+  const attributeRegexp = /\[\s*(?<attribute>\w+)\s*=\s*"(?<value>\\.|[^"\\]*)"\s*\]/;
   const defaultName = selector.replace(
     attributeRegexp,
-    (_, attribute: string, quote: string, value: string) => {
+    (_, attribute: string, value: string) => {
       attribute = attribute.trim();
       if (!knownAttributes.has(attribute))
-        throw new Error(`Unknown aria attribute "${attribute}" in selector`);
-      queryOptions[attribute] = normalizeValue(value);
+        throw new Error(
+          'Unkown aria attribute "${groups.attribute}" in selector'
+        );
+      queryOptions[attribute] = normalize(value);
       return '';
     }
   );
   if (defaultName && !queryOptions.name)
-    queryOptions.name = normalizeValue(defaultName);
+    queryOptions.name = normalize(defaultName);
   return queryOptions;
 }
 
@@ -92,8 +91,8 @@ const waitFor = async (
   const binding: PageBinding = {
     name: 'ariaQuerySelector',
     pptrFunction: async (selector: string) => {
-      const root = options.root || (await domWorld._document());
-      const element = await queryOne(root, selector);
+      const document = await domWorld._document();
+      const element = await queryOne(document, selector);
       return element;
     },
   };

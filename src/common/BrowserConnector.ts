@@ -15,7 +15,7 @@
  */
 
 import { ConnectionTransport } from './ConnectionTransport.js';
-import { Browser, TargetFilterCallback } from './Browser.js';
+import { Browser } from './Browser.js';
 import { assert } from './assert.js';
 import { debugError } from '../common/helper.js';
 import { Connection } from './Connection.js';
@@ -24,29 +24,13 @@ import { Viewport } from './PuppeteerViewport.js';
 import { isNode } from '../environment.js';
 
 /**
- * Generic browser options that can be passed when launching any browser or when
- * connecting to an existing browser instance.
+ * Generic browser options that can be passed when launching any browser.
  * @public
  */
-export interface BrowserConnectOptions {
-  /**
-   * Whether to ignore HTTPS errors during navigation.
-   * @defaultValue false
-   */
+export interface BrowserOptions {
   ignoreHTTPSErrors?: boolean;
-  /**
-   * Sets the viewport for each page.
-   */
-  defaultViewport?: Viewport | null;
-  /**
-   * Slows down Puppeteer operations by the specified amount of milliseconds to
-   * aid debugging.
-   */
+  defaultViewport?: Viewport;
   slowMo?: number;
-  /**
-   * Callback to decide if Puppeteer should connect to a given target or not.
-   */
-  targetFilter?: TargetFilterCallback;
 }
 
 const getWebSocketTransportClass = async () => {
@@ -62,7 +46,7 @@ const getWebSocketTransportClass = async () => {
  * @internal
  */
 export const connectToBrowser = async (
-  options: BrowserConnectOptions & {
+  options: BrowserOptions & {
     browserWSEndpoint?: string;
     browserURL?: string;
     transport?: ConnectionTransport;
@@ -75,7 +59,6 @@ export const connectToBrowser = async (
     defaultViewport = { width: 800, height: 600 },
     transport,
     slowMo = 0,
-    targetFilter,
   } = options;
 
   assert(
@@ -89,14 +72,16 @@ export const connectToBrowser = async (
     connection = new Connection('', transport, slowMo);
   } else if (browserWSEndpoint) {
     const WebSocketClass = await getWebSocketTransportClass();
-    const connectionTransport: ConnectionTransport =
-      await WebSocketClass.create(browserWSEndpoint);
+    const connectionTransport: ConnectionTransport = await WebSocketClass.create(
+      browserWSEndpoint
+    );
     connection = new Connection(browserWSEndpoint, connectionTransport, slowMo);
   } else if (browserURL) {
     const connectionURL = await getWSEndpoint(browserURL);
     const WebSocketClass = await getWebSocketTransportClass();
-    const connectionTransport: ConnectionTransport =
-      await WebSocketClass.create(connectionURL);
+    const connectionTransport: ConnectionTransport = await WebSocketClass.create(
+      connectionURL
+    );
     connection = new Connection(connectionURL, connectionTransport, slowMo);
   }
 
@@ -109,8 +94,7 @@ export const connectToBrowser = async (
     ignoreHTTPSErrors,
     defaultViewport,
     null,
-    () => connection.send('Browser.close').catch(debugError),
-    targetFilter
+    () => connection.send('Browser.close').catch(debugError)
   );
 };
 

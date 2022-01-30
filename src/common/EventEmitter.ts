@@ -5,12 +5,7 @@ import mitt, {
 } from '../../vendor/mitt/src/index.js';
 
 /**
- * @public
- */
-export { EventType, Handler };
-
-/**
- * @public
+ * @internal
  */
 export interface CommonEventEmitter {
   on(event: EventType, handler: Handler): CommonEventEmitter;
@@ -21,7 +16,7 @@ export interface CommonEventEmitter {
    */
   addListener(event: EventType, handler: Handler): CommonEventEmitter;
   removeListener(event: EventType, handler: Handler): CommonEventEmitter;
-  emit(event: EventType, eventData?: unknown): boolean;
+  emit(event: EventType, eventData?: any): boolean;
   once(event: EventType, handler: Handler): CommonEventEmitter;
   listenerCount(event: string): number;
 
@@ -55,7 +50,7 @@ export class EventEmitter implements CommonEventEmitter {
    * Bind an event listener to fire when an event occurs.
    * @param event - the event type you'd like to listen to. Can be a string or symbol.
    * @param handler  - the function to be called when the event occurs.
-   * @returns `this` to enable you to chain method calls.
+   * @returns `this` to enable you to chain calls.
    */
   on(event: EventType, handler: Handler): EventEmitter {
     this.emitter.on(event, handler);
@@ -66,7 +61,7 @@ export class EventEmitter implements CommonEventEmitter {
    * Remove an event listener from firing.
    * @param event - the event type you'd like to stop listening to.
    * @param handler  - the function that should be removed.
-   * @returns `this` to enable you to chain method calls.
+   * @returns `this` to enable you to chain calls.
    */
   off(event: EventType, handler: Handler): EventEmitter {
     this.emitter.off(event, handler);
@@ -75,7 +70,7 @@ export class EventEmitter implements CommonEventEmitter {
 
   /**
    * Remove an event listener.
-   * @deprecated please use {@link EventEmitter.off} instead.
+   * @deprecated please use `off` instead.
    */
   removeListener(event: EventType, handler: Handler): EventEmitter {
     this.off(event, handler);
@@ -84,7 +79,7 @@ export class EventEmitter implements CommonEventEmitter {
 
   /**
    * Add an event listener.
-   * @deprecated please use {@link EventEmitter.on} instead.
+   * @deprecated please use `on` instead.
    */
   addListener(event: EventType, handler: Handler): EventEmitter {
     this.on(event, handler);
@@ -98,7 +93,7 @@ export class EventEmitter implements CommonEventEmitter {
    * @param eventData - any data you'd like to emit with the event
    * @returns `true` if there are any listeners, `false` if there are not.
    */
-  emit(event: EventType, eventData?: unknown): boolean {
+  emit(event: EventType, eventData?: any): boolean {
     this.emitter.emit(event, eventData);
     return this.eventListenersCount(event) > 0;
   }
@@ -107,7 +102,7 @@ export class EventEmitter implements CommonEventEmitter {
    * Like `on` but the listener will only be fired once and then it will be removed.
    * @param event - the event you'd like to listen to
    * @param handler - the handler function to run when the event occurs
-   * @returns `this` to enable you to chain method calls.
+   * @returns `this` to enable you to chain calls.
    */
   once(event: EventType, handler: Handler): EventEmitter {
     const onceHandler: Handler = (eventData) => {
@@ -132,7 +127,7 @@ export class EventEmitter implements CommonEventEmitter {
    * Removes all listeners. If given an event argument, it will remove only
    * listeners for that event.
    * @param event - the event to remove listeners for.
-   * @returns `this` to enable you to chain method calls.
+   * @returns `this` to enable you to chain calls.
    */
   removeAllListeners(event?: EventType): EventEmitter {
     if (event) {

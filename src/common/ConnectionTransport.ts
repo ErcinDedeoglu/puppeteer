@@ -14,12 +14,9 @@
  * limitations under the License.
  */
 
-/**
- * @public
- */
 export interface ConnectionTransport {
-  send(message: string): void;
-  close(): void;
+  send(string);
+  close();
   onmessage?: (message: string) => void;
   onclose?: () => void;
 }

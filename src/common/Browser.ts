@@ -21,86 +21,10 @@ import { EventEmitter } from './EventEmitter.js';
 import { Connection, ConnectionEmittedEvents } from './Connection.js';
 import { Protocol } from 'devtools-protocol';
 import { Page } from './Page.js';
-import { TaskQueue } from './TaskQueue.js';
 import { ChildProcess } from 'child_process';
 import { Viewport } from './PuppeteerViewport.js';
 
-/**
- * BrowserContext options.
- *
- * @public
- */
-export interface BrowserContextOptions {
-  /**
-   * Proxy server with optional port to use for all requests.
-   * Username and password can be set in `Page.authenticate`.
-   */
-  proxyServer?: string;
-  /**
-   * Bypass the proxy for the given semi-colon-separated list of hosts.
-   */
-  proxyBypassList?: string[];
-}
-
-/**
- * @internal
- */
-export type BrowserCloseCallback = () => Promise<void> | void;
-
-/**
- * @public
- */
-export type TargetFilterCallback = (
-  target: Protocol.Target.TargetInfo
-) => boolean;
-
-const WEB_PERMISSION_TO_PROTOCOL_PERMISSION = new Map<
-  Permission,
-  Protocol.Browser.PermissionType
->([
-  ['geolocation', 'geolocation'],
-  ['midi', 'midi'],
-  ['notifications', 'notifications'],
-  // TODO: push isn't a valid type?
-  // ['push', 'push'],
-  ['camera', 'videoCapture'],
-  ['microphone', 'audioCapture'],
-  ['background-sync', 'backgroundSync'],
-  ['ambient-light-sensor', 'sensors'],
-  ['accelerometer', 'sensors'],
-  ['gyroscope', 'sensors'],
-  ['magnetometer', 'sensors'],
-  ['accessibility-events', 'accessibilityEvents'],
-  ['clipboard-read', 'clipboardReadWrite'],
-  ['clipboard-write', 'clipboardReadWrite'],
-  ['payment-handler', 'paymentHandler'],
-  ['persistent-storage', 'durableStorage'],
-  ['idle-detection', 'idleDetection'],
-  // chrome-specific permissions we have.
-  ['midi-sysex', 'midiSysex'],
-]);
-
-/**
- * @public
- */
-export type Permission =
-  | 'geolocation'
-  | 'midi'
-  | 'notifications'
-  | 'camera'
-  | 'microphone'
-  | 'background-sync'
-  | 'ambient-light-sensor'
-  | 'accelerometer'
-  | 'gyroscope'
-  | 'magnetometer'
-  | 'accessibility-events'
-  | 'clipboard-read'
-  | 'clipboard-write'
-  | 'payment-handler'
-  | 'persistent-storage'
-  | 'idle-detection'
-  | 'midi-sysex';
+type BrowserCloseCallback = () => Promise<void> | void;
 
 /**
  * @public
@@ -214,10 +138,9 @@ export class Browser extends EventEmitter {
     connection: Connection,
     contextIds: string[],
     ignoreHTTPSErrors: boolean,
-    defaultViewport?: Viewport | null,
+    defaultViewport?: Viewport,
     process?: ChildProcess,
-    closeCallback?: BrowserCloseCallback,
-    targetFilterCallback?: TargetFilterCallback
+    closeCallback?: BrowserCloseCallback
   ): Promise<Browser> {
     const browser = new Browser(
       connection,
@@ -225,22 +148,18 @@ export class Browser extends EventEmitter {
       ignoreHTTPSErrors,
       defaultViewport,
       process,
-      closeCallback,
-      targetFilterCallback
+      closeCallback
     );
     await connection.send('Target.setDiscoverTargets', { discover: true });
     return browser;
   }
   private _ignoreHTTPSErrors: boolean;
-  private _defaultViewport?: Viewport | null;
+  private _defaultViewport?: Viewport;
   private _process?: ChildProcess;
   private _connection: Connection;
   private _closeCallback: BrowserCloseCallback;
-  private _targetFilterCallback: TargetFilterCallback;
   private _defaultContext: BrowserContext;
   private _contexts: Map<string, BrowserContext>;
-  private _screenshotTaskQueue: TaskQueue;
-  private _ignoredTargets = new Set<string>();
   /**
    * @internal
    * Used in Target.ts directly so cannot be marked private.
@@ -254,21 +173,18 @@ export class Browser extends EventEmitter {
     connection: Connection,
     contextIds: string[],
     ignoreHTTPSErrors: boolean,
-    defaultViewport?: Viewport | null,
+    defaultViewport?: Viewport,
     process?: ChildProcess,
-    closeCallback?: BrowserCloseCallback,
-    targetFilterCallback?: TargetFilterCallback
+    closeCallback?: BrowserCloseCallback
   ) {
     super();
     this._ignoreHTTPSErrors = ignoreHTTPSErrors;
     this._defaultViewport = defaultViewport;
     this._process = process;
-    this._screenshotTaskQueue = new TaskQueue();
     this._connection = connection;
     this._closeCallback = closeCallback || function (): void {};
-    this._targetFilterCallback = targetFilterCallback || ((): boolean => true);
 
-    this._defaultContext = new BrowserContext(this._connection, this);
+    this._defaultContext = new BrowserContext(this._connection, this, null);
     this._contexts = new Map();
     for (const contextId of contextIds)
       this._contexts.set(
@@ -296,7 +212,7 @@ export class Browser extends EventEmitter {
    * {@link Puppeteer.connect}.
    */
   process(): ChildProcess | null {
-    return this._process ?? null;
+    return this._process;
   }
 
   /**
@@ -316,17 +232,9 @@ export class Browser extends EventEmitter {
    * })();
    * ```
    */
-  async createIncognitoBrowserContext(
-    options: BrowserContextOptions = {}
-  ): Promise<BrowserContext> {
-    const { proxyServer = '', proxyBypassList = [] } = options;
-
+  async createIncognitoBrowserContext(): Promise<BrowserContext> {
     const { browserContextId } = await this._connection.send(
-      'Target.createBrowserContext',
-      {
-        proxyServer,
-        proxyBypassList: proxyBypassList && proxyBypassList.join(','),
-      }
+      'Target.createBrowserContext'
     );
     const context = new BrowserContext(
       this._connection,
@@ -357,11 +265,8 @@ export class Browser extends EventEmitter {
    * Used by BrowserContext directly so cannot be marked private.
    */
   async _disposeContext(contextId?: string): Promise<void> {
-    if (!contextId) {
-      return;
-    }
     await this._connection.send('Target.disposeBrowserContext', {
-      browserContextId: contextId,
+      browserContextId: contextId || undefined,
     });
     this._contexts.delete(contextId);
   }
@@ -376,23 +281,12 @@ export class Browser extends EventEmitter {
         ? this._contexts.get(browserContextId)
         : this._defaultContext;
 
-    if (!context) {
-      throw new Error('Missing browser context');
-    }
-
-    const shouldAttachToTarget = this._targetFilterCallback(targetInfo);
-    if (!shouldAttachToTarget) {
-      this._ignoredTargets.add(targetInfo.targetId);
-      return;
-    }
-
     const target = new Target(
       targetInfo,
       context,
       () => this._connection.createSession(targetInfo),
       this._ignoreHTTPSErrors,
-      this._defaultViewport ?? null,
-      this._screenshotTaskQueue
+      this._defaultViewport
     );
     assert(
       !this._targets.has(event.targetInfo.targetId),
@@ -407,13 +301,7 @@ export class Browser extends EventEmitter {
   }
 
   private async _targetDestroyed(event: { targetId: string }): Promise<void> {
-    if (this._ignoredTargets.has(event.targetId)) return;
     const target = this._targets.get(event.targetId);
-    if (!target) {
-      throw new Error(
-        `Missing target in _targetDestroyed (id = ${event.targetId})`
-      );
-    }
     target._initializedCallback(false);
     this._targets.delete(event.targetId);
     target._closedCallback();
@@ -428,13 +316,8 @@ export class Browser extends EventEmitter {
   private _targetInfoChanged(
     event: Protocol.Target.TargetInfoChangedEvent
   ): void {
-    if (this._ignoredTargets.has(event.targetInfo.targetId)) return;
     const target = this._targets.get(event.targetInfo.targetId);
-    if (!target) {
-      throw new Error(
-        `Missing target in targetInfoChanged (id = ${event.targetInfo.targetId})`
-      );
-    }
+    assert(target, 'target should exist before targetInfoChanged');
     const previousURL = target.url();
     const wasInitialized = target._isInitialized;
     target._targetInfoChanged(event.targetInfo);
@@ -468,8 +351,7 @@ export class Browser extends EventEmitter {
   }
 
   /**
-   * Promise which resolves to a new {@link Page} object. The Page is created in
-   * a default browser context.
+   * Creates a {@link Page} in the default browser context.
    */
   async newPage(): Promise<Page> {
     return this._defaultContext.newPage();
@@ -484,20 +366,12 @@ export class Browser extends EventEmitter {
       url: 'about:blank',
       browserContextId: contextId || undefined,
     });
-    const target = this._targets.get(targetId);
-    if (!target) {
-      throw new Error(`Missing target for page (id = ${targetId})`);
-    }
-    const initialized = await target._initializedPromise;
-    if (!initialized) {
-      throw new Error(`Failed to create target for page (id = ${targetId})`);
-    }
+    const target = await this._targets.get(targetId);
+    assert(
+      await target._initializedPromise,
+      'Failed to create target for page'
+    );
     const page = await target.page();
-    if (!page) {
-      throw new Error(
-        `Failed to create a page for context (id = ${contextId})`
-      );
-    }
     return page;
   }
 
@@ -515,13 +389,7 @@ export class Browser extends EventEmitter {
    * The target associated with the browser.
    */
   target(): Target {
-    const browserTarget = this.targets().find(
-      (target) => target.type() === 'browser'
-    );
-    if (!browserTarget) {
-      throw new Error('Browser target is not found');
-    }
-    return browserTarget;
+    return this.targets().find((target) => target.type() === 'browser');
   }
 
   /**
@@ -545,7 +413,7 @@ export class Browser extends EventEmitter {
     const { timeout = 30000 } = options;
     const existingTarget = this.targets().find(predicate);
     if (existingTarget) return existingTarget;
-    let resolve: (value: Target | PromiseLike<Target>) => void;
+    let resolve;
     const targetPromise = new Promise<Target>((x) => (resolve = x));
     this.on(BrowserEmittedEvents.TargetCreated, check);
     this.on(BrowserEmittedEvents.TargetChanged, check);
@@ -636,9 +504,7 @@ export class Browser extends EventEmitter {
     return this._connection.send('Browser.getVersion');
   }
 }
-/**
- * @public
- */
+
 export const enum BrowserContextEmittedEvents {
   /**
    * Emitted when the url of a target inside the browser context changes.
@@ -692,7 +558,6 @@ export const enum BrowserContextEmittedEvents {
  * // Dispose context once it's no longer needed.
  * await context.close();
  * ```
- * @public
  */
 export class BrowserContext extends EventEmitter {
   private _connection: Connection;
@@ -758,7 +623,7 @@ export class BrowserContext extends EventEmitter {
         .filter((target) => target.type() === 'page')
         .map((target) => target.page())
     );
-    return pages.filter((page): page is Page => !!page);
+    return pages.filter((page) => !!page);
   }
 
   /**
@@ -785,11 +650,34 @@ export class BrowserContext extends EventEmitter {
    */
   async overridePermissions(
     origin: string,
-    permissions: Permission[]
+    permissions: string[]
   ): Promise<void> {
+    const webPermissionToProtocol = new Map<
+      string,
+      Protocol.Browser.PermissionType
+    >([
+      ['geolocation', 'geolocation'],
+      ['midi', 'midi'],
+      ['notifications', 'notifications'],
+      // TODO: push isn't a valid type?
+      // ['push', 'push'],
+      ['camera', 'videoCapture'],
+      ['microphone', 'audioCapture'],
+      ['background-sync', 'backgroundSync'],
+      ['ambient-light-sensor', 'sensors'],
+      ['accelerometer', 'sensors'],
+      ['gyroscope', 'sensors'],
+      ['magnetometer', 'sensors'],
+      ['accessibility-events', 'accessibilityEvents'],
+      ['clipboard-read', 'clipboardReadWrite'],
+      ['clipboard-write', 'clipboardReadWrite'],
+      ['payment-handler', 'paymentHandler'],
+      ['idle-detection', 'idleDetection'],
+      // chrome-specific permissions we have.
+      ['midi-sysex', 'midiSysex'],
+    ]);
     const protocolPermissions = permissions.map((permission) => {
-      const protocolPermission =
-        WEB_PERMISSION_TO_PROTOCOL_PERMISSION.get(permission);
+      const protocolPermission = webPermissionToProtocol.get(permission);
       if (!protocolPermission)
         throw new Error('Unknown permission: ' + permission);
       return protocolPermission;

@@ -16,14 +16,8 @@
 
 import { NetworkConditions } from './NetworkManager.js';
 
-/**
- * @public
- */
 export type PredefinedNetworkConditions = { [name: string]: NetworkConditions };
 
-/**
- * @public
- */
 export const networkConditions: PredefinedNetworkConditions = {
   'Slow 3G': {
     download: ((500 * 1000) / 8) * 0.8,

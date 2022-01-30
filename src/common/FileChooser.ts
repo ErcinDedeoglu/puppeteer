@@ -34,7 +34,6 @@ import { assert } from './assert.js';
  * **NOTE** In browsers, only one file chooser can be opened at a time.
  * All file choosers must be accepted or canceled. Not doing so will prevent
  * subsequent file choosers from appearing.
- * @public
  */
 export class FileChooser {
   private _element: ElementHandle;
@@ -76,7 +75,7 @@ export class FileChooser {
   /**
    * Closes the file chooser without selecting any files.
    */
-  cancel(): void {
+  async cancel(): Promise<void> {
     assert(
       !this._handled,
       'Cannot cancel FileChooser which is already handled!'
